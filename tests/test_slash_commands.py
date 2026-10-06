@@ -12,7 +12,7 @@ import pytest
 
 from modmail.bot import ModmailCommands
 
-TOP_LEVEL = {"help", "reply", "close", "threadinfo", "mention"}
+TOP_LEVEL = {"help", "reply", "close", "threadinfo", "mention", "block", "unblock", "blocklist"}
 
 
 def _command_map() -> dict[str, object]:
@@ -88,6 +88,25 @@ def test_mention_on_off_list_take_no_parameters():
 
 def test_help_command_has_no_parameters():
     assert list(_command_map()["help"].parameters) == []
+
+
+def test_block_takes_required_user_and_optional_reason():
+    block = _command_map()["block"]
+    params = {p.name: p for p in block.parameters}
+    assert set(params) == {"user", "reason"}
+    assert params["user"].required is True
+    assert params["reason"].required is False
+
+
+def test_unblock_takes_required_user():
+    unblock = _command_map()["unblock"]
+    params = {p.name: p for p in unblock.parameters}
+    assert set(params) == {"user"}
+    assert params["user"].required is True
+
+
+def test_blocklist_takes_no_parameters():
+    assert list(_command_map()["blocklist"].parameters) == []
 
 
 def test_threadinfo_has_no_parameters():

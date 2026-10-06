@@ -201,6 +201,26 @@ class LogEntry(Base):
         return f"<LogEntry id={self.id} thread={self.thread_id} key={self.key[:8]}...>"
 
 
+class BlockedUser(Base):
+    """A member blocked from creating ModMail tickets."""
+
+    __tablename__ = "blocked_users"
+
+    # Discord user ID is the source of truth.
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    blocked_by_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<BlockedUser user_id={self.user_id}>"
+
+
 class GuildSetting(Base):
     """A single key/value setting for the guild.
 

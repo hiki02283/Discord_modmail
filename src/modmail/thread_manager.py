@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from modmail.db import session_scope
 from modmail.models import (
+    BlockedUser,
     LogEntry,
     MessageDirection,
     Thread,
@@ -210,3 +211,50 @@ class ThreadManager:
         )
         async with session_scope() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
+
+    # --- Blocking ---------------------------------------------------------
+
+    async def is_blocked(self, user_id: int) -> BlockedUser | None:
+        """Return the block row for a user, or None when not blocked."""
+        async with session_scope() as session:
+            return await session.get(BlockedUser, user_id)
+
+    async def block_user(
+        self,
+        user_id: int,
+        *,
+        reason: str | None = None,
+        blocked_by_id: int | None = None,
+    ) -> BlockedUser:
+        """Block a user. Idempotent: re-blocking updates reason/staff/timestamp."""
+        async with session_scope() as session:
+            existing = await session.get(BlockedUser, user_id)
+            if existing is not None:
+                existing.reason = reason
+                existing.blocked_by_id = blocked_by_id
+                existing.updated_at = datetime.now(UTC)
+                logger.info("Re-blocked user %s (by %s).", user_id, blocked_by_id)
+                return existing
+            row = BlockedUser(
+                user_id=user_id, reason=reason, blocked_by_id=blocked_by_id
+            )
+            session.add(row)
+            await session.flush()
+            logger.info("Blocked user %s (by %s).", user_id, blocked_by_id)
+            return row
+
+    async def unblock_user(self, user_id: int) -> bool:
+        """Remove a block. Returns True when a row was removed."""
+        async with session_scope() as session:
+            existing = await session.get(BlockedUser, user_id)
+            if existing is None:
+                return False
+            await session.delete(existing)
+            logger.info("Unblocked user %s.", user_id)
+            return True
+
+    async def list_blocked(self) -> list[BlockedUser]:
+        """Return every blocked user, oldest first."""
+        async with session_scope() as session:
+            stmt = select(BlockedUser).order_by(BlockedUser.created_at)
+            return list((await session.execute(stmt)).scalars().all())

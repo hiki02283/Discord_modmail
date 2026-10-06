@@ -215,6 +215,14 @@ class ModmailBot(commands.Bot):
     async def handle_dm(self, message: discord.Message) -> None:
         """Route a member's DM to their thread, creating one if needed."""
         member = message.author
+        # Blocked users never reach thread lookup/creation.
+        if await self.threads.is_blocked(member.id):
+            with contextlib.suppress(discord.HTTPException):
+                await message.channel.send(
+                    "You are blocked from contacting staff via ModMail. "
+                    "Please wait for staff to lift the block."
+                )
+            return
         thread = await self.threads.get_open_by_recipient(member.id)
 
         if thread is None:
@@ -294,6 +302,19 @@ class ModmailBot(commands.Bot):
         """Relay a staff message to the member. Returns True if it was relayed."""
         thread = await self.threads.get_open_by_channel(message.channel.id)
         if thread is None:
+            return False
+
+        if await self.threads.is_blocked(thread.recipient_id):
+            logger.info(
+                "Refusing staff reply in thread %s: recipient %s is blocked.",
+                thread.id,
+                thread.recipient_id,
+            )
+            with contextlib.suppress(discord.HTTPException):
+                await message.channel.send(
+                    "That user is blocked from receiving ModMail messages. "
+                    "Use `/unblock` before replying."
+                )
             return False
 
         recipient = self.get_user(thread.recipient_id)
@@ -415,9 +436,18 @@ class ModmailCommands(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="Block commands",
+            value=(
+                "`/block` — block a user from creating ModMail tickets\n"
+                "`/unblock` — remove a user's block\n"
+                "`/blocklist` — show blocked users"
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="Permissions",
             value=(
-                "Mention commands require the server owner, an administrator, "
+                "Mention and block commands require the server owner, an administrator, "
                 "or the configured staff role."
             ),
             inline=False,
@@ -432,6 +462,13 @@ class ModmailCommands(commands.Cog):
     async def reply(self, interaction: discord.Interaction, message: str) -> None:
         thread = await self._require_thread(interaction)
         if thread is None:
+            return
+
+        if await self.bot.threads.is_blocked(thread.recipient_id):
+            await interaction.response.send_message(
+                "That user is blocked. Unblock them with `/unblock` before replying.",
+                ephemeral=True,
+            )
             return
 
         recipient = await self._resolve_member(thread.recipient_id)
@@ -509,6 +546,82 @@ class ModmailCommands(commands.Cog):
         embed.add_field(name="Opened", value=discord.utils.format_dt(thread.created_at, "R"))
         embed.add_field(name="Messages", value=str(len(thread.messages)), inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # --- Block commands -----------------------------------------------------
+
+    @app_commands.command(name="block", description="Block a user from creating ModMail tickets.")
+    @app_commands.describe(
+        user="The member to block.", reason="Optional reason shown in /blocklist."
+    )
+    async def block(
+        self, interaction: discord.Interaction, user: discord.Member, reason: str | None = None
+    ) -> None:
+        """Block a user. Leaves any open thread intact; only future contact is gated."""
+        if not await self._require_authorised(interaction):
+            return
+        clean_reason = reason.strip()[:500] if reason and reason.strip() else None
+        already = await self.bot.threads.is_blocked(user.id)
+        await self.bot.threads.block_user(
+            user.id, reason=clean_reason, blocked_by_id=interaction.user.id
+        )
+        if already is not None:
+            await interaction.response.send_message(
+                f"{user.mention} (`{user.id}`) was already blocked. Block updated."
+                + (f" Reason: {clean_reason}" if clean_reason else ""),
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                f"Blocked {user.mention} (`{user.id}`)."
+                + (f" Reason: {clean_reason}" if clean_reason else "")
+                + " Their open thread (if any) is left intact; new DMs will be refused.",
+                ephemeral=True,
+            )
+
+    @app_commands.command(name="unblock", description="Remove a user's block.")
+    @app_commands.describe(user="The member to unblock.")
+    async def unblock(self, interaction: discord.Interaction, user: discord.Member) -> None:
+        if not await self._require_authorised(interaction):
+            return
+        removed = await self.bot.threads.unblock_user(user.id)
+        if removed:
+            await interaction.response.send_message(
+                f"Unblocked {user.mention} (`{user.id}`). They can contact staff again.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                f"{user.mention} (`{user.id}`) was not blocked.",
+                ephemeral=True,
+            )
+
+    @app_commands.command(name="blocklist", description="Show blocked users.")
+    async def blocklist(self, interaction: discord.Interaction) -> None:
+        if not await self._require_authorised(interaction):
+            return
+        # Acknowledge immediately so the interaction cannot time out.
+        await interaction.response.defer(ephemeral=True)
+        rows = await self.bot.threads.list_blocked()
+        if not rows:
+            await interaction.followup.send("No users are blocked.", ephemeral=True)
+            return
+        lines = []
+        for row in rows:
+            stamp = discord.utils.format_dt(row.created_at, "R") if row.created_at else "unknown"
+            lines.append(
+                f"<@{row.user_id}> (`{row.user_id}`) — "
+                f"reason: {row.reason or 'none'} — "
+                f"by: {f'<@{row.blocked_by_id}>' if row.blocked_by_id else 'unknown'} — "
+                f"{stamp}"
+            )
+        text = "\n".join(lines)
+        # Keep each followup within Discord limits; paginate by 1500 chars.
+        for start in range(0, len(text), 1500):
+            chunk = text[start : start + 1500]
+            embed = discord.Embed(
+                title="Blocked users", description=chunk, color=discord.Color.dark_grey()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     # --- Mention commands -------------------------------------------------
 
