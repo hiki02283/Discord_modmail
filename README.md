@@ -4,19 +4,7 @@ A minimal Discord ModMail bot: members DM the bot, staff answer from a private
 channel. Inspired by the architecture of the well-known open-source ModMail
 projects, but written from scratch — no code was copied from them.
 
-## What works in Phase 1
 
-- A member's DM opens a private staff channel in a `ModMail` category.
-- Every further DM is relayed into that channel.
-- Staff messages in the channel are relayed back to the member as a DM.
-- **One open thread per member**, enforced in the database and in code.
-- `?close [reason]` archives the thread, notifies the member and the log
-  channel, then deletes the channel.
-- `?reply <text>` DMs the member without posting in the channel.
-- `?threadinfo` shows the current thread.
-- Every relayed message is stored, and a closed thread gets an unguessable
-  archive key ready for a future log viewer.
-- DMs from one member are processed in order (a queue per member).
 
 ## Requirements
 
