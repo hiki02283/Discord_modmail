@@ -51,17 +51,16 @@ projects, but written from scratch — no code was copied from them.
 
 ## Running
 
-```powershell
-& "C:\Users\hiki\Downloads\my ai\project\modmail\.venv\Scripts\python.exe" -m modmail
+```bash
+python -m modmail
 ```
 
-Run it from the project folder (`project\modmail`) so that `modmail.db` and
-`logs\` land next to the code.
+Run it from the project root so that `modmail.db` and `logs\` land next to the code.
 
 ## Tests
 
-```powershell
-& "C:\Users\hiki\Downloads\my ai\project\modmail\.venv\Scripts\python.exe" -m pytest
+```bash
+python -m pytest
 ```
 
 32 tests, no network and no real Discord connection required.
